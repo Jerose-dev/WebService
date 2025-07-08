@@ -44,6 +44,11 @@ const ProductsSchema = z.object({
 
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
+const OrderSchema = z.object({
+    userId: z.number().int(),
+    productIds: z.array(z.number().int()).nonempty(),
+});
+
 app.get("/", (req, res) => {
     res.send("Hello World!");
 });
@@ -275,5 +280,101 @@ app.get("/f2p-games/:id", async (req, res) => {
     } catch (err) {
         console.error("Erreur FreeToGame API :", err);
         res.status(500).send("Erreur lors de la récupération du jeu");
+    }
+});
+
+app.post("/orders", async (req, res) => {
+    try {
+        const { userId, productIds } = OrderSchema.parse(req.body);
+
+        // Vérification des produits
+        const products = await sql`
+      SELECT * FROM products WHERE id = ANY(${productIds})
+    `;
+        if (products.length !== productIds.length) {
+            return res.status(400).send("Certains produits sont introuvables");
+        }
+
+        // Calcul du total avec TVA 20%
+        const rawTotal = products.reduce((sum, p) => sum + Number(p.price), 0);
+        const total = Number((rawTotal * 1.2).toFixed(2));
+
+        const [order] = await sql`
+      INSERT INTO orders (user_id, product_ids, total)
+      VALUES (${userId}, ${productIds}, ${total})
+      RETURNING *;
+    `;
+        res.status(201).json(order);
+    } catch (err) {
+        console.error(err);
+        res.status(400).send("Erreur de validation ou d'insertion");
+    }
+});
+
+app.get("/orders/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).send("ID invalide");
+
+    try {
+        const [order] = await sql`SELECT * FROM orders WHERE id = ${id}`;
+        if (!order) return res.status(404).send("Commande non trouvée");
+
+        const [user] = await sql`SELECT id, username, email FROM users WHERE id = ${order.user_id}`;
+        const products = await sql`
+      SELECT * FROM products WHERE id = ANY(${order.product_ids})
+    `;
+
+        res.json({
+            ...order,
+            user,
+            products,
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Erreur serveur");
+    }
+});
+
+app.get("/orders", async (req, res) => {
+    try {
+        const orders = await sql`SELECT * FROM orders ORDER BY created_at DESC`;
+        res.json(orders);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Erreur serveur");
+    }
+});
+
+app.patch("/orders/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    const { payment } = req.body;
+
+    if (typeof payment !== "boolean") return res.status(400).send("Champ 'payment' requis");
+
+    try {
+        const [updated] = await sql`
+      UPDATE orders
+      SET payment = ${payment}, updated_at = NOW()
+      WHERE id = ${id}
+      RETURNING *;
+    `;
+        if (!updated) return res.status(404).send("Commande non trouvée");
+
+        res.json(updated);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Erreur serveur");
+    }
+});
+
+app.delete("/orders/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    try {
+        const [deleted] = await sql`DELETE FROM orders WHERE id = ${id} RETURNING *`;
+        if (!deleted) return res.status(404).send("Commande non trouvée");
+        res.status(200).json(deleted);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Erreur serveur");
     }
 });
