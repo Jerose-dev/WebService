@@ -42,6 +42,8 @@ const ProductsSchema = z.object({
     price: z.number().positive(),
 });
 
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+
 app.get("/", (req, res) => {
     res.send("Hello World!");
 });
@@ -247,5 +249,31 @@ app.delete("/users/:id", async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).send("Erreur serveur");
+    }
+});
+
+// Route GET /f2p-games - Tous les jeux
+app.get("/f2p-games", async (req, res) => {
+    try {
+        const response = await fetch("https://www.freetogame.com/api/games");
+        const games = await response.json();
+        res.json(games);
+    } catch (err) {
+        console.error("Erreur FreeToGame API :", err);
+        res.status(500).send("Erreur lors de la récupération des jeux");
+    }
+});
+
+// Route GET /f2p-games/:id - Un seul jeu
+app.get("/f2p-games/:id", async (req, res) => {
+    const id = req.params.id;
+    try {
+        const response = await fetch(`https://www.freetogame.com/api/game?id=${id}`);
+        if (!response.ok) return res.status(404).send("Jeu non trouvé");
+        const game = await response.json();
+        res.json(game);
+    } catch (err) {
+        console.error("Erreur FreeToGame API :", err);
+        res.status(500).send("Erreur lors de la récupération du jeu");
     }
 });
