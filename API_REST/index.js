@@ -95,6 +95,7 @@ app.get("/products", async (req, res) => {
     }
 });
 
+
 const CreateProductsSchema = ProductsSchema.omit({ id: true });
 // POST /products - Créer un nouveau produit
 app.post("/products", (req, res) => {
@@ -373,6 +374,50 @@ app.delete("/orders/:id", async (req, res) => {
         const [deleted] = await sql`DELETE FROM orders WHERE id = ${id} RETURNING *`;
         if (!deleted) return res.status(404).send("Commande non trouvée");
         res.status(200).json(deleted);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Erreur serveur");
+    }
+});
+
+app.get("/products", async (req, res) => {
+    try {
+        const { name, about, price, page = 1, limit = 10 } = req.query;
+
+        let filters = [];
+        let values = [];
+
+        // Construire dynamiquement les filtres
+        if (name) {
+            values.push(`%${name.toLowerCase()}%`);
+            filters.push(sql`LOWER(name) LIKE ${values[values.length - 1]}`);
+        }
+        if (about) {
+            values.push(`%${about.toLowerCase()}%`);
+            filters.push(sql`LOWER(about) LIKE ${values[values.length - 1]}`);
+        }
+        if (price) {
+            const priceNum = Number(price);
+            if (!isNaN(priceNum)) {
+                filters.push(sql`price <= ${priceNum}`);
+            }
+        }
+
+        // Pagination
+        const limitNum = Number(limit) > 0 ? Number(limit) : 10;
+        const offsetNum = (Number(page) > 1 ? Number(page) - 1 : 0) * limitNum;
+
+        // Construire la requête SQL avec les filtres
+        let query = sql`SELECT * FROM products`;
+        if (filters.length > 0) {
+            query = sql`${query} WHERE ${sql.join(filters, sql` AND `)}`;
+        }
+        query = sql`${query} ORDER BY id LIMIT ${limitNum} OFFSET ${offsetNum}`;
+
+        // Exécuter la requête
+        const products = await query;
+        res.json(products);
+
     } catch (err) {
         console.error(err);
         res.status(500).send("Erreur serveur");
